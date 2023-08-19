@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<configuration>
+    <!--logback自身が出すログを抑制-->
+    <statusListener class="ch.qos.logback.core.status.NopStatusListener" />
+
+    <conversionRule conversionWord="coloredLevel" converterClass="play.api.libs.logback.ColoredLevel" />
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%date{yyyy-MM-dd HH:mm:ss} %coloredLevel %logger - %message%n%xException{10}</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${application.home:-.}/logs/application.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- Daily rollover with compression -->
+            <fileNamePattern>${application.home:-.}/logs/application-log-%d{yyyy-MM-dd}.gz</fileNamePattern>
+            <!-- keep 30 days worth of history -->
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%date{yyyy-MM-dd HH:mm:ss ZZZZ} [%level] %thread %logger - %message%n%xException</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="SECURITY_FILE" class="ch.qos.logback.core.FileAppender">
+        <filter class="ch.qos.logback.core.filter.EvaluatorFilter">
+            <evaluator class="ch.qos.logback.classic.boolex.OnMarkerEvaluator">
+                <marker>SECURITY</marker>
+            </evaluator>
+            <OnMismatch>DENY</OnMismatch>
+            <OnMatch>ACCEPT</OnMatch>
+        </filter>
+        <file>${application.home:-.}/logs/security.log</file>
+        <encoder>
+            <pattern>%date{yyyy-MM-dd HH:mm:ss ZZZZ} [%level] [%marker] %thread %logger - %message%n%xException</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="ACCESS_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${application.home:-.}/logs/access.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- daily rollover with compression -->
+            <fileNamePattern>${application.home:-.}/logs/access-log-%d{yyyy-MM-dd}.gz</fileNamePattern>
+            <!-- keep 1 week worth of history -->
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%date{yyyy-MM-dd HH:mm:ss ZZZZ} [%level] - %message%n</pattern>
+            <!-- this quadruples logging throughput -->
+            <immediateFlush>true</immediateFlush>
+        </encoder>
+    </appender>
+
+    <appender name="SLICK_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${application.home:-.}/logs/slick.log</file>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>DEBUG</level>
+        </filter>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- daily rollover with compression -->
+            <fileNamePattern>${application.home:-.}/logs/slick-log-%d{yyyy-MM-dd}.gz</fileNamePattern>
+            <!-- keep 1 week worth of history -->
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%date{yyyy-MM-dd HH:mm:ss ZZZZ} [%level] %thread %logger - %message%n</pattern>
+            <!-- this quadruples logging throughput -->
+            <immediateFlush>true</immediateFlush>
+        </encoder>
+    </appender>
+
+
+    <!-- additivity=false ensures access log data only goes to the access log -->
+    <logger name="access" level="INFO" additivity="false">
+        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="ACCESS_FILE" />
+    </logger>
+
+    <logger name="slick.jdbc" level="DEBUG">
+        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="SLICK_FILE" />
+    </logger>
+    <logger name="slick.basic" level="DEBUG">
+        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="SLICK_FILE" />
+    </logger>
+    <logger name="slick.compiler" level="INFO" />
+    <logger name="slick.relational" level="INFO" />
+
+    <logger name="akka" level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </logger>
+
+    <logger name="org.apache.http" level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </logger>
+<!--    <logger name="actors.MyActor" level="DEBUG" />-->
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="SECURITY_FILE"/>
+    </root>
+</configuration>
