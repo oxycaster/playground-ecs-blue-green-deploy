@@ -1,0 +1,9 @@
+version: "3.9"
+
+services:
+  app:
+    image: playground-ecs-blue-green-deploy:0.1.0-SNAPSHOT
+    ports:
+      - "9000:9000"
+    environment:
+      APPLICATION_SECRET: 'Y@I4TtNfuzdK6isY;bvZc]R8[Nhaoj`v8T9WZaW4Z2Cz@lE2X8>Z;P?gm8DDDl8W'
