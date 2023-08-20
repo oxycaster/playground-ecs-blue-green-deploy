@@ -1,0 +1,49 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_ROLE_ARN: "arn:aws:iam::410185156938:role/test-IAMRole-7O0JGY6M9L4G" # GitHub Actions OIDC用IAMロール
+  ECR_REGISTRY_ID: "test-ecr-rfebzvvrihgt"
+
+jobs:
+  Build:
+    runs-on: ubuntu-20.04
+    permissions:
+      id-token: write
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+        with:
+          registries: ${{ env.ECR_REGISTRY_ID }}
+
+      - name: Setup JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'corretto'
+          java-version: 11
+
+      - name: Build with SBT
+        run: sbt docker:publishLocal
