@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description:
+  VPC
+
+Parameters:
+  EnvType:
+    Description: Environment type.
+    Default: development
+    Type: String
+    AllowedValues:
+      - development
+      - production
+    ConstraintDescription: must specify development or production.
+
+  ProjectId:
+    Description: Project name id.
+    Default: oxycaster1000
+    Type: String
+    AllowedPattern: "^oxycaster[0-9]+$"
+    ConstraintDescription: must specify Project id.
+
+  VpcBlock:
+    Type: String
+    Default: 10.1.0.0/16
+    Description: The CIDR range for the VPC. This should be a valid private (RFC 1918) CIDR range.
+
+  GitHubUserName:
+    Type: String
+    Description: GitHub username
+
+  GitHubRepositoryName:
+    Type: String
+    Description: GitHub repository name
+
+  GitHubBranchName:
+    Type: String
+    Default: main
+    Description: GitHub branch name
+
+
+Resources:
+  OIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      ClientIdList:
+        - sts.amazonaws.com
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ "Ref": "EnvType" , "Ref": "ProjectId" ,"OIDCProvider" ] ]
+      ThumbprintList:
+        - "1c58a3a8518e8759bf075b76b750d4f2df264fcd"  # GitHubの場合Thumbprintはここで指定されたものは考慮されず自動で取得・検証されるので適当な文字列でもOK
+      Url: "https://token.actions.githubusercontent.com"
+
+  IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+                Federated:
+                    - !Ref OIDCProvider
+            Action:
+              - "sts:AssumeRoleWithWebIdentity"
+            Condition:
+                StringEquals:
+                    "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+                    "token.actions.githubusercontent.com:sub": !Sub "repo:${GitHubUserName}/${GitHubRepositoryName}:ref:refs/heads/${GitHubBranchName}"
+
+      Policies:
+        - PolicyName: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" , "Policy" ] ]
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "ecr:GetAuthorizationToken"
+                Resource:
+                  - "*"
+
+              - Effect: Allow
+                Action:
+                  - "ecr:UploadLayerPart"
+                  - "ecr:PutImage"
+                  - "ecr:InitiateLayerUpload"
+                  - "ecr:CompleteLayerUpload"
+                  - "ecr:BatchCheckLayerAvailability"
+                Resource:
+                  - !GetAtt ECR.Arn
+
+  # アプリケーションのDockerリポジトリを作成する
+  ECR:
+    Type: AWS::ECR::Repository
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcBlock
+      EnableDnsSupport: "true"
+      EnableDnsHostnames: "true"
+      InstanceTenancy: "default"
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" ,"VPC" ] ]
