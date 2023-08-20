@@ -104,3 +104,12 @@ Resources:
       Tags:
         - Key: Name
           Value: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" ,"VPC" ] ]
+
+Outputs:
+  IAMRoleArn:
+    Description: IAM Role ARN
+    Value: !GetAtt IAMRole.Arn
+
+  ECRRegistryId:
+    Description: ECR Registry ID
+    Value: !Ref ECR
