@@ -7,7 +7,7 @@ on:
 
 env:
   AWS_ROLE_ARN: "arn:aws:iam::410185156938:role/test-IAMRole-7O0JGY6M9L4G" # GitHub Actions OIDC用IAMロール
-  ECR_REGISTRY_ID: "test-ecr-rfebzvvrihgt"
+  ECR_REPOSITORY_NAME: "test-ecr-rfebzvvrihgt"  # ECRリポジトリ名
 
 jobs:
   Build:
@@ -40,4 +40,13 @@ jobs:
           java-version: 11
 
       - name: Build with SBT
-        run: sbt docker:publishLocal
+        run: sbt Docker/publishLocal
+
+      - name: set image tag
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: ${{ env.ECR_REPOSITORY_NAME }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker tag playground-ecs-blue-green-deploy:0.1.0-SNAPSHOT ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.IMAGE_TAG }}
+          docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.IMAGE_TAG }}

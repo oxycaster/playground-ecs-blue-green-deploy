@@ -110,6 +110,6 @@ Outputs:
     Description: IAM Role ARN
     Value: !GetAtt IAMRole.Arn
 
-  ECRRegistryId:
-    Description: ECR Registry ID
+  ECRRepositoryName:
+    Description: ECR Repository Name
     Value: !Ref ECR
