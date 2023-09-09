@@ -38,6 +38,40 @@ Parameters:
     Default: main
     Description: GitHub branch name
 
+  DesiredCount:
+    Type: Number
+    Default: 0
+
+Transform:
+  - "AWS::CodeDeployBlueGreen"
+
+Hooks:
+  CodeDeployBlueGreenHook:
+    Properties:
+      TrafficRoutingConfig:
+        Type: TimeBasedCanary
+        TimeBasedCanary:
+          StepPercentage: 15
+          BakeTimeMins: 5
+      Applications:
+        - Target:
+            Type: 'AWS::ECS::Service'
+            LogicalID: ECSService
+          ECSAttributes:
+            TaskDefinitions:
+              - ECSBlueTaskDefinition
+              - ECSGreenTaskDefinition
+            TaskSets:
+              - BlueTaskSet
+              - GreenTaskSet
+            TrafficRouting:
+              ProdTrafficRoute:
+                Type: 'AWS::ElasticLoadBalancingV2::Listener'
+                LogicalID: ALBListenerProdTraffic
+              TargetGroups:
+                - ALBTargetGroupBlue
+                - ALBTargetGroupGreen
+    Type: 'AWS::CodeDeploy::BlueGreen'
 
 Resources:
   OIDCProvider:
@@ -45,12 +79,12 @@ Resources:
     Properties:
       ClientIdList:
         - sts.amazonaws.com
+      ThumbprintList:
+        - "1c58a3a8518e8759bf075b76b750d4f2df264fcd"
+      Url: "https://token.actions.githubusercontent.com"
       Tags:
         - Key: Name
           Value: !Join [ "-", [ "Ref": "EnvType" , "Ref": "ProjectId" ,"OIDCProvider" ] ]
-      ThumbprintList:
-        - "1c58a3a8518e8759bf075b76b750d4f2df264fcd"  # GitHubの場合Thumbprintはここで指定されたものは考慮されず自動で取得・検証されるので適当な文字列でもOK
-      Url: "https://token.actions.githubusercontent.com"
 
   IAMRole:
     Type: AWS::IAM::Role
@@ -59,16 +93,14 @@ Resources:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
+            Action: sts:AssumeRoleWithWebIdentity
             Principal:
-                Federated:
-                    - !Ref OIDCProvider
-            Action:
-              - "sts:AssumeRoleWithWebIdentity"
+              Federated: !GetAtt OIDCProvider.Arn
             Condition:
-                StringEquals:
-                    "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-                    "token.actions.githubusercontent.com:sub": !Sub "repo:${GitHubUserName}/${GitHubRepositoryName}:ref:refs/heads/${GitHubBranchName}"
-
+              StringEquals:
+                token.actions.githubusercontent.com:aud: "sts.amazonaws.com"
+              StringLike:
+                token.actions.githubusercontent.com:sub: "repo:oxycaster/playground-ecs-blue-green-deploy:ref:refs/heads/main"
       Policies:
         - PolicyName: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" , "Policy" ] ]
           PolicyDocument:
@@ -76,10 +108,15 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  - "codedeploy:Get*"
+                  - "codedeploy:CreateCloudFormationDeployment"
+                Resource:
+                  - "*"
+              - Effect: Allow
+                Action:
                   - "ecr:GetAuthorizationToken"
                 Resource:
                   - "*"
-
               - Effect: Allow
                 Action:
                   - "ecr:UploadLayerPart"
@@ -89,10 +126,269 @@ Resources:
                   - "ecr:BatchCheckLayerAvailability"
                 Resource:
                   - !GetAtt ECR.Arn
+#  ALB:
+#    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+#    DependsOn:
+#      - ALBTargetGroup
+#    Properties:
+#      Type: application
+#      Scheme: internet-facing
+#      IpAddressType: ipv4
+#      LoadBalancerAttributes:
+#        - Key: "deletion_protection.enabled"
+#          Value: false
+#        - Key: "idle_timeout.timeout_seconds"
+#          Value: 60
+#      #         - Key: "access_logs.s3.enabled"
+#      #           Value: true
+#      #         - Key: "access_logs.s3.bucket"
+#      #           Value: !Sub "alb-log-${AWS::AccountId}"
+#      SecurityGroups:
+#        - !Ref HTTPSSecurityGroup
+#      Subnets:
+#        - !Ref PublicSubnetA
+#        - !Ref PublicSubnetC
+#      Tags:
+#        - Key: Name
+#          Value: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" , "ALB" ] ]
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ec2 access
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  ALBTargetGroupBlue:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 5
+      HealthCheckPath: /
+      HealthCheckPort: '80'
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 2
+      HealthyThresholdCount: 2
+      Matcher:
+        HttpCode: '200'
+      Port: 80
+      Protocol: HTTP
+      Tags:
+        - Key: Group
+          Value: Example
+      TargetType: ip
+      UnhealthyThresholdCount: 4
+      VpcId: !Ref VPC
+
+  ALBTargetGroupGreen:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 5
+      HealthCheckPath: /
+      HealthCheckPort: '80'
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 2
+      HealthyThresholdCount: 2
+      Matcher:
+        HttpCode: '200'
+      Port: 80
+      Protocol: HTTP
+      Tags:
+        - Key: Group
+          Value: Example
+      TargetType: ip
+      UnhealthyThresholdCount: 4
+      VpcId: !Ref VPC
+
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref SecurityGroup
+      Subnets:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetD
+      Tags:
+        - Key: Group
+          Value: Example
+      Type: application
+      IpAddressType: ipv4
+
+  ALBListenerProdTraffic:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref ALBTargetGroupBlue
+                Weight: 1
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+
+  ALBListenerProdRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: forward
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref ALBTargetGroupBlue
+                Weight: 1
+      Conditions:
+        - Field: http-header
+          HttpHeaderConfig:
+            HttpHeaderName: User-Agent
+            Values:
+              - Mozilla
+      ListenerArn: !Ref ALBListenerProdTraffic
+      Priority: 1
 
   # アプリケーションのDockerリポジトリを作成する
   ECR:
     Type: AWS::ECR::Repository
+
+  # ECSCluster
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" ,"ECSCluster" ] ]
+
+  # ECSService
+#  ECSService:
+#    Type: AWS::ECS::Service
+#    #     DependsOn:
+#    #       - ALBHTTPSListener
+#    Properties:
+#      Cluster: !Ref ECSCluster
+#      TaskDefinition: !Ref ECSTaskDefinition
+#      DesiredCount: !Ref DesiredCount
+#      LaunchType: FARGATE
+#      NetworkConfiguration:
+#        AwsvpcConfiguration:
+#          AssignPublicIp: ENABLED
+#          SecurityGroups:
+#            - !Ref SecurityGroup
+#          Subnets:
+#            - !Ref PublicSubnetA
+#            - !Ref PublicSubnetC
+#      LoadBalancers:
+#        - TargetGroupArn: !Ref ALBTargetGroup
+#          ContainerName: !Ref ContainerName
+#          ContainerPort: 9000
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref ECSCluster
+      DesiredCount: 0
+      DeploymentController:
+        Type: EXTERNAL
+
+  BlueTaskSet:
+    Type: AWS::ECS::TaskSet
+    Properties:
+      Cluster: !Ref ECSCluster
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsVpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref SecurityGroup
+          Subnets:
+            - !Ref PrivateSubnetA
+            - !Ref PrivateSubnetD
+      PlatformVersion: 1.4.0
+      Scale:
+        Unit: PERCENT
+        Value: 100
+      Service: !Ref ECSService
+      TaskDefinition: !Ref ECSBlueTaskDefinition
+      LoadBalancers:
+        - ContainerName: DemoApp
+          ContainerPort: 80
+          TargetGroupArn: !Ref ALBTargetGroupBlue
+
+  PrimaryTaskSet:
+    Type: AWS::ECS::PrimaryTaskSet
+    Properties:
+      Cluster: !Ref ECSCluster
+      Service: !Ref ECSService
+      TaskSetId: !GetAtt
+        - BlueTaskSet
+        - Id
+
+  # ECSタスク
+  ECSBlueTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Cpu: 256
+      Memory: 512
+      RuntimePlatform:
+        OperatingSystemFamily: "LINUX"
+        CpuArchitecture: "ARM64"
+      ContainerDefinitions:
+        - Name: "DemoApp"
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.ap-northeast-1.amazonaws.com/test-ecr-rfebzvvrihgt:d4cd83530d58451a116754210a01c1bdb2ee9951'
+          PseudoTerminal: true
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ECSLogGroup
+              awslogs-region: ap-northeast-1
+              awslogs-stream-prefix: ecs
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 80
+              Protocol: tcp
+          Environment:
+            - Name: LC_ALL
+              Value: "en_US.UTF-8"
+            - Name: LANG
+              Value: "ja_JP.UTF-8"
+      ExecutionRoleArn: !GetAtt
+                          - ECSTaskExecutionRole
+                          - Arn
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+
+  # ECS用のロググループ作成
+  ECSLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/logs/${EnvType}-${ProjectId}-app-groups'
 
   VPC:
     Type: AWS::EC2::VPC
@@ -105,11 +401,171 @@ Resources:
         - Key: Name
           Value: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" ,"VPC" ] ]
 
-Outputs:
-  IAMRoleArn:
-    Description: IAM Role ARN
-    Value: !GetAtt IAMRole.Arn
+  # Create Public RouteTable
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" ,"pub-route" ] ]
 
+  # Create Private RouteTable
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" ,"pri-route" ] ]
+
+  # Create Public Subnet A
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [ 0, !Cidr [ !Ref VpcBlock, 6, 8 ] ]
+      AvailabilityZone: "ap-northeast-1a"
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" ,"PublicSubnetA" ] ]
+
+  # Public Subnet A と Public Route Tableを関連付ける
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+
+
+  # Create Public Subnet C
+  PublicSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [ 1, !Cidr [ !Ref VpcBlock, 6, 8 ] ]
+      AvailabilityZone: "ap-northeast-1c"
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" ,"PublicSubnetC" ] ]
+
+  # Public Subnet C と Public Route Tableを関連付ける
+  PublicSubnetCRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetC
+      RouteTableId: !Ref PublicRouteTable
+
+
+
+
+  # Create Public Subnet D
+  PublicSubnetD:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [ 2, !Cidr [ !Ref VpcBlock, 6, 8 ] ]
+      AvailabilityZone: "ap-northeast-1d"
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" ,"PublicSubnetD" ] ]
+
+  # Public Subnet D と Public Route Tableを関連付ける
+  PublicSubnetDRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetD
+      RouteTableId: !Ref PublicRouteTable
+
+
+
+  # Create Private Subnet A
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [ 3, !Cidr [ !Ref VpcBlock, 6, 8 ] ]
+      AvailabilityZone: "ap-northeast-1a"
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" ,"PrivateSubnetA" ] ]
+
+  # Private Subnet A と Private Route Table を関連付ける
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+
+
+  # Create Private Subnet C
+  PrivateSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [ 4, !Cidr [ !Ref VpcBlock, 6, 8 ] ]
+      AvailabilityZone: "ap-northeast-1c"
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" ,"PrivateSubnetC" ] ]
+
+  # Private Subnet C と Private Route Table を関連付ける
+  PriSubnetCRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetC
+      RouteTableId: !Ref PrivateRouteTable
+
+
+
+  # Create Private Subnet D
+  PrivateSubnetD:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [ 5, !Cidr [ !Ref VpcBlock, 6, 8 ] ]
+      AvailabilityZone: "ap-northeast-1d"
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" ,"PrivateSubnetD" ] ]
+
+  # Private Subnet D と Private Route Table を関連付ける
+  PrivateSubnetDRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetD
+      RouteTableId: !Ref PrivateRouteTable
+
+  # Public Route Table に IGW からの経路を作る
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+
+
+  # Create InternetGateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ "Ref":"EnvType" , "Ref":"ProjectId" ,"igw" ] ]
+
+  # VPCにIGWをアタッチする
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+Outputs:
   ECRRepositoryName:
-    Description: ECR Repository Name
     Value: !Ref ECR
+  GitHubOIDCRoleArn:
+    Value: !GetAtt IAMRole.Arn
