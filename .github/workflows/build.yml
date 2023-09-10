@@ -46,7 +46,7 @@ jobs:
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           REPOSITORY: ${{ env.ECR_REPOSITORY_NAME }}
-          IMAGE_TAG: "latest" # ${{ github.sha }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
           docker tag playground-ecs-blue-green-deploy:0.1.0-SNAPSHOT ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.IMAGE_TAG }}
           docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.IMAGE_TAG }}
