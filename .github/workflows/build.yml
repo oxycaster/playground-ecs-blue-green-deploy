@@ -6,8 +6,8 @@ on:
       - main
 
 env:
-  AWS_ROLE_ARN: "arn:aws:iam::410185156938:role/test-IAMRole-10JVDR9RYC83Q" # GitHub Actions OIDC用IAMロール
-  ECR_REPOSITORY_NAME: "test-ecr-dyaju808dnej"  # ECRリポジトリ名
+  AWS_ROLE_ARN: "arn:aws:iam::410185156938:role/test-IAMRole-CIHT2C99QWXZ" # GitHub Actions OIDC用IAMロール
+  ECR_REPOSITORY_NAME: "test-ecr-a34kr04szwpv"  # ECRリポジトリ名
 
 jobs:
   Build:
@@ -46,7 +46,7 @@ jobs:
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           REPOSITORY: ${{ env.ECR_REPOSITORY_NAME }}
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: "latest" # ${{ github.sha }}
         run: |
           docker tag playground-ecs-blue-green-deploy:0.1.0-SNAPSHOT ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.IMAGE_TAG }}
           docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.IMAGE_TAG }}

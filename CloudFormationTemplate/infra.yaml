@@ -311,7 +311,7 @@ Resources:
     Type: AWS::ECS::Service
     Properties:
       Cluster: !Ref ECSCluster
-      DesiredCount: 0
+      DesiredCount: !Ref DesiredCount
       DeploymentController:
         Type: EXTERNAL
 
@@ -359,7 +359,7 @@ Resources:
         CpuArchitecture: "ARM64"
       ContainerDefinitions:
         - Name: "DemoApp"
-          Image: !Sub '${AWS::AccountId}.dkr.ecr.ap-northeast-1.amazonaws.com/test-ecr-rfebzvvrihgt:d4cd83530d58451a116754210a01c1bdb2ee9951'
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.ap-northeast-1.amazonaws.com/${ECR}:latest'
           PseudoTerminal: true
           Essential: true
           LogConfiguration:
