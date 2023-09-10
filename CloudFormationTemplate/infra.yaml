@@ -27,10 +27,12 @@ Parameters:
 
   GitHubUserName:
     Type: String
+    Default: oxycaster
     Description: GitHub username
 
   GitHubRepositoryName:
     Type: String
+    Default: playground-ecs-blue-green-deploy
     Description: GitHub repository name
 
   GitHubBranchName:
@@ -49,33 +51,33 @@ Parameters:
 #Transform:
 #  - "AWS::CodeDeployBlueGreen"
 
-Hooks:
-  CodeDeployBlueGreenHook:
-    Properties:
-      TrafficRoutingConfig:
-        Type: TimeBasedCanary
-        TimeBasedCanary:
-          StepPercentage: 15
-          BakeTimeMins: 5
-      Applications:
-        - Target:
-            Type: 'AWS::ECS::Service'
-            LogicalID: ECSService
-          ECSAttributes:
-            TaskDefinitions:
-              - ECSBlueTaskDefinition
-              - ECSGreenTaskDefinition
-            TaskSets:
-              - BlueTaskSet
-              - GreenTaskSet
-            TrafficRouting:
-              ProdTrafficRoute:
-                Type: 'AWS::ElasticLoadBalancingV2::Listener'
-                LogicalID: ALBListenerProdTraffic
-              TargetGroups:
-                - ALBTargetGroupBlue
-                - ALBTargetGroupGreen
-    Type: 'AWS::CodeDeploy::BlueGreen'
+#Hooks:
+#  CodeDeployBlueGreenHook:
+#    Properties:
+#      TrafficRoutingConfig:
+#        Type: TimeBasedCanary
+#        TimeBasedCanary:
+#          StepPercentage: 15
+#          BakeTimeMins: 5
+#      Applications:
+#        - Target:
+#            Type: 'AWS::ECS::Service'
+#            LogicalID: ECSService
+#          ECSAttributes:
+#            TaskDefinitions:
+#              - ECSBlueTaskDefinition
+#              - ECSGreenTaskDefinition
+#            TaskSets:
+#              - BlueTaskSet
+#              - GreenTaskSet
+#            TrafficRouting:
+#              ProdTrafficRoute:
+#                Type: 'AWS::ElasticLoadBalancingV2::Listener'
+#                LogicalID: ALBListenerProdTraffic
+#              TargetGroups:
+#                - ALBTargetGroupBlue
+#                - ALBTargetGroupGreen
+#    Type: 'AWS::CodeDeploy::BlueGreen'
 
 Resources:
   OIDCProvider:
@@ -364,6 +366,7 @@ Resources:
       ContainerDefinitions:
         - Name: "DemoApp"
           Image: !Sub '${AWS::AccountId}.dkr.ecr.ap-northeast-1.amazonaws.com/${ECR}:${ImageTag}'
+#          Image: "nginxdemos/hello:latest"
           PseudoTerminal: true
           Essential: true
           LogConfiguration:
