@@ -6,8 +6,8 @@ on:
       - main
 
 env:
-  AWS_ROLE_ARN: "arn:aws:iam::410185156938:role/test-IAMRole-1XK4OCUUR3FRF" # GitHub Actions OIDC用IAMロール
-  ECR_REPOSITORY_NAME: "test-ecr-hmdh27voqseu"  # ECRリポジトリ名
+  AWS_ROLE_ARN: "arn:aws:iam::410185156938:role/test-IAMRole-7516ULPYCAOY" # GitHub Actions OIDC用IAMロール
+  ECR_REPOSITORY_NAME: "test-ecr-rn5ymwpiiy35"  # ECRリポジトリ名
 
 jobs:
   Build:
